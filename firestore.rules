@@ -1,0 +1,25 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Check if user is signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Check if the user is the owner of the document
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Guard ID poisoning
+    function isValidId(id) {
+      return id.size() > 0 && id.size() <= 128;
+    }
+
+    // Match order collection paths (accessible by any signed-in employee)
+    match /orders/{orderId} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

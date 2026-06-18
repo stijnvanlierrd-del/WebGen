@@ -1,0 +1,55 @@
+{
+  "entities": {
+    "order": {
+      "title": "Order",
+      "description": "An order representing a web development project with progress, payments, and notes.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique ID of the order."
+        },
+        "userId": {
+          "type": "string",
+          "description": "The Firebase User ID of the owner."
+        },
+        "email": {
+          "type": "string",
+          "description": "The email of the owner."
+        },
+        "title": {
+          "type": "string",
+          "description": "The title or package name of the order."
+        },
+        "progress": {
+          "type": "integer",
+          "description": "The current progress of the project (percentage)."
+        },
+        "notes": {
+          "type": "string",
+          "description": "User specific remarks or developer notes for the order."
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["Betaald", "In behandeling", "Nog niet betaald"],
+          "description": "The current billing/payment status."
+        },
+        "price": {
+          "type": "string",
+          "description": "The price of the order."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of when the order was created."
+        }
+      },
+      "required": ["id", "userId", "email", "title", "progress", "paymentStatus"]
+    }
+  },
+  "firestore": {
+    "orders": {
+      "schema": "order",
+      "description": "Collection of all webdesign and logo orders."
+    }
+  }
+}
