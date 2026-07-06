@@ -15,8 +15,7 @@ import InfiniteGallery from '@/src/components/ui/3d-gallery-photography';
 import AboutUsGallery from '@/src/components/ui/about-us-gallery';
 import ContactForm from '@/src/components/ui/contact-form';
 import { CustomerDashboard } from '@/src/components/CustomerDashboard';
-import { auth, googleProvider, signInWithPopup, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from '@/src/lib/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
+import { supabase } from '@/src/lib/supabase';
 import { UserProfile } from '@/src/types';
 
 type Page = 'Home' | 'Diensten' | 'Prijzen' | 'Over ons' | 'Contact' | 'Calculator' | 'Portaal';
@@ -286,19 +285,37 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
+    // Check initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
         setUser({
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || "U",
-          photoURL: firebaseUser.photoURL
+          uid: session.user.id,
+          email: session.user.email || null,
+          displayName: session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || "U",
+          photoURL: session.user.user_metadata?.avatar_url || null
         });
       } else {
         setUser(null);
       }
     });
-    return () => unsubscribe();
+
+    // Listen to auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({
+          uid: session.user.id,
+          email: session.user.email || null,
+          displayName: session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || "U",
+          photoURL: session.user.user_metadata?.avatar_url || null
+        });
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
@@ -310,44 +327,60 @@ export default function App() {
     setAuthLoading(true);
     setAuthError(null);
     try {
-      if (authMode === 'login') {
-        const result = await signInWithEmailAndPassword(auth, email, password);
-        if (result.user) {
-          setUser({
-            uid: result.user.uid,
-            email: result.user.email,
-            displayName: result.user.displayName || email.split('@')[0],
-            photoURL: result.user.photoURL
+      // First attempt to sign in with password
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password.trim()
+      });
+
+      if (error) {
+        // If user is not found, or invalid login credentials, let's try to sign up automatically
+        if (error.message.includes("Invalid login credentials") || error.message.includes("user_not_found")) {
+          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+            email: email.trim(),
+            password: password.trim()
           });
-          setActivePage('Portaal');
-          setEmail('');
-          setPassword('');
+
+          if (signUpError) {
+            throw signUpError;
+          }
+
+          if (signUpData.user) {
+            setUser({
+              uid: signUpData.user.id,
+              email: signUpData.user.email || null,
+              displayName: signUpData.user.email?.split('@')[0] || "U",
+              photoURL: null
+            });
+            setActivePage('Portaal');
+            setEmail('');
+            setPassword('');
+            return;
+          }
         }
-      } else {
-        const result = await createUserWithEmailAndPassword(auth, email, password);
-        if (result.user) {
-          setUser({
-            uid: result.user.uid,
-            email: result.user.email,
-            displayName: email.split('@')[0],
-            photoURL: null
-          });
-          setActivePage('Portaal');
-          setEmail('');
-          setPassword('');
-        }
+        throw error;
+      }
+
+      if (data.user) {
+        setUser({
+          uid: data.user.id,
+          email: data.user.email || null,
+          displayName: data.user.user_metadata?.display_name || data.user.email?.split('@')[0] || "U",
+          photoURL: data.user.user_metadata?.avatar_url || null
+        });
+        setActivePage('Portaal');
+        setEmail('');
+        setPassword('');
       }
     } catch (error: any) {
       console.error("Auth Error:", error);
-      let friendlyMessage = "Er is een fout opgetreden bij de login. Controleer uw invoer.";
-      if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-        friendlyMessage = 'Onjuist e-mailadres of wachtwoord.';
-      } else if (error.code === 'auth/invalid-email') {
-        friendlyMessage = 'Ongeldig e-mailadres.';
-      } else if (error.code === 'auth/email-already-in-use') {
-        friendlyMessage = 'Dit e-mailadres is al in gebruik.';
-      } else if (error.code === 'auth/weak-password') {
-        friendlyMessage = 'Het wachtwoord moet minimaal 6 tekens bevatten.';
+      let friendlyMessage = error.message || "Er is een fout opgetreden bij de login. Controleer uw invoer.";
+      if (error.message?.includes("Email not confirmed") || error.code === 'email_not_confirmed') {
+        friendlyMessage = "Controleer uw e-mail inbox voor de activatiebevestiging of controleer uw wachtwoord.";
+      } else if (error.message?.includes("Password should be") || error.code === 'weak_password') {
+        friendlyMessage = "Wachtwoord moet minimaal 6 tekens bevatten.";
+      } else if (error.message?.includes("rate limit") || error.status === 429) {
+        friendlyMessage = "Te veel pogingen. Wacht even en probeer het opnieuw.";
       }
       setAuthError(friendlyMessage);
     } finally {
@@ -357,7 +390,7 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      await supabase.auth.signOut();
       setUser(null);
       setActivePage('Home');
     } catch (error) {
@@ -838,10 +871,10 @@ export default function App() {
                   <Lock className="w-8 h-8" />
                 </div>
                 <h3 className="text-3xl font-serif italic text-[#1e293b]">
-                  Medewerkers Portaal
+                  WebGen Portaal
                 </h3>
                 <p className="text-gray-600 font-medium text-sm leading-relaxed">
-                  Vul uw e-mailadres en wachtwoord in om WebGen projecten live te beheren.
+                  Log in met uw e-mailadres en wachtwoord. Als klant kunt u uw projectvoortgang inzien, en als medewerker kunt u projecten beheren.
                 </p>
               </div>
 
